@@ -15,7 +15,7 @@ static void WINAPI service_handler(DWORD control)
 	}
 }
 
-static DWORD service_set_args(DWORD argc, WCHAR **argv)
+static DWORD service_set_args(unsigned int argc, WCHAR **argv)
 {
 	DWORD rc;
 	for (; argc-- > 0; argv++) {
@@ -27,8 +27,8 @@ static DWORD service_set_args(DWORD argc, WCHAR **argv)
 				return rc;
 		} else {
 			WCHAR *pend;
-			DWORD i = wcstoul(*argv, &pend, 0);
-			if (i > 0 && pend == L'\0') {
+			DWORD i = wcstoul(a, &pend, 0);
+			if (i > 0 && *pend == L'\0') {
 				poll_internal = i;
 			}
 		}
@@ -49,22 +49,14 @@ static void WINAPI service_main(DWORD argc, WCHAR **argv)
 		return;
 
 	service_status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
-	service_status.dwCurrentState = SERVICE_START_PENDING;
 	service_status.dwControlsAccepted = SERVICE_ACCEPT_STOP;
 	service_status.dwWaitHint =
 	service_status.dwCheckPoint =
 	service_status.dwServiceSpecificExitCode =
 	service_status.dwWin32ExitCode = 0;
-	SetServiceStatus(service_handle, &service_status);
 
 	DWORD rc;
 	do {
-		if (rc = service_set_args(argc, argv))
-			break;
-
-		if (rc = drives_init())
-			break;
-
 		service_stop = CreateEvent(NULL, FALSE, FALSE, NULL);
 		if (service_stop == NULL) {
 			rc = GetLastError();
@@ -83,8 +75,6 @@ static void WINAPI service_main(DWORD argc, WCHAR **argv)
 		CloseHandle(service_stop);
 	} while (0);
 
-	drives_free();
-
 	service_status.dwWin32ExitCode = rc;
 	service_status.dwCurrentState = SERVICE_STOPPED;
 	SetServiceStatus(service_handle, &service_status);
@@ -92,15 +82,25 @@ static void WINAPI service_main(DWORD argc, WCHAR **argv)
 
 int __cdecl wmain(unsigned int argc, WCHAR **argv)
 {
-	static const SERVICE_TABLE_ENTRY service_table[] = {
-		{ (LPWSTR)service_name, service_main },
-		{ NULL, NULL }
-	};
+	DWORD rc;
+	do {
+		if (rc = drives_init())
+			break;
 
-	if (StartServiceCtrlDispatcher(service_table) == 0)
-		return GetLastError();
+		if (rc = service_set_args(argc, argv))
+			break;
 
-	return 0;
+		static const SERVICE_TABLE_ENTRY service_table[] = {
+			{ (LPWSTR)service_name, service_main },
+			{ NULL, NULL }
+		};
+
+		rc = StartServiceCtrlDispatcher(service_table) == 0 ? GetLastError() : 0;
+	} while (0);
+
+	drives_free();
+
+	return rc;
 }
 
 // disable VS2015 telemetry
